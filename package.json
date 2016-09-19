@@ -1,0 +1,31 @@
+{
+  "name": "mashery2openapi",
+  "version": "1.0.0",
+  "description": "Mashery IO Docs to OpenAPI (Swagger) 2.0 Specification",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MikeRalphson/mashery2openapi.git"
+  },
+  "keywords": [
+    "mashery",
+    "iodocs",
+    "api",
+    "openapi",
+    "swagger"
+  ],
+  "author": "Mike Ralphson",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/MikeRalphson/mashery2openapi/issues"
+  },
+  "homepage": "https://github.com/MikeRalphson/mashery2openapi#readme",
+  "dependencies": {
+    "cheerio": "latest",
+	"request": "latest",
+	"swagger-parser": "latest"
+  }
+}

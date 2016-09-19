@@ -1,2 +1,4 @@
 *.json
 *.html
+*.txt
+node_modules
