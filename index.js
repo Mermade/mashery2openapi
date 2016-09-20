@@ -12,6 +12,12 @@ var cheerio = require('cheerio');
 var _ = require('lodash');
 
 const externalDocsText = 'You can also view our written documentation.';
+const noDescription = 'No description set';
+
+function rename(obj,key,newKey){
+	obj[newKey] = obj[key];
+	delete obj[key];
+}
 
 function createSwagger(){
 	var s = {};
@@ -43,6 +49,48 @@ function createSwagger(){
 	return s;
 }
 
+function optimisePaths(s){
+	var minCommon = Number.MAX_VALUE;
+	for (var p in s.paths) {
+		var count = p.split('/').length-1;
+		if (count<minCommon) minCommon = count;
+	}
+	if (minCommon>0) {
+		var common = '';
+		var components = [];
+		for (var p in s.paths) {
+			components = p.split('/');
+			var path = '';
+			for (var c=0;c<minCommon;c++) {
+				if (components[c]) path += '/' + components[c];
+			}
+			if (!common) {
+				common = path;
+			}
+			else {
+				if (path != common) {
+					common = '*'; // multiple values
+				}
+			}
+		}
+		if (common && common != '*') {
+			s.basePath = common;
+			for (var c=0;c<minCommon;c++) {
+				var element = components[c];
+				if (element.match(/^v[0123456789].*$/)) {
+					s.info.version = element.replace('v','');
+				}
+			}
+
+			for (var p in s.paths) {
+				rename(s.paths,p,p.replace(common,''));
+			}
+
+		}
+	}
+	return s;
+}
+
 function processHtml(html,options,callback){
 
 	var collection = [];
@@ -65,7 +113,7 @@ function processHtml(html,options,callback){
 				t.externalDocs.description = temp;
 			}
 			t.externalDocs.url = $('div .introText>p>a').first().attr('href');
-			if (!t.externalDocs.url.startsWith('http')) {
+			if ((t.externalDocs.url && (!t.externalDocs.url.startsWith('http')))) {
 				if (options.url) {
 					t.externalDocs.url = options.urlOrFile+t.externalDocs.url;
 				}
@@ -87,8 +135,11 @@ function processHtml(html,options,callback){
 			for (var i in ids) {
 				var id = ids[i];
 				var s = collection[i];
+				s.info["x-mashery-id"] = id;
 				var apiDesc = $('#apiDescription'+id).text().trim();
-				s.info.description += ' '+apiDesc;
+				if (apiDesc != noDescription) {
+					s.info.description += ' '+apiDesc;
+				}
 				console.log('%s %s',id,s.info.title);
 
 				var api = $('#api'+id).first();
@@ -122,7 +173,7 @@ function processHtml(html,options,callback){
 					methodUri = methodUri.split('Δ').join(':');
 					methodUri = methodUri.split('Î"').join(':');
 					methodUri = methodUri + '/';
-					methodUri = methodUri.replace(/:(.+?)([\.\/])/g,function(match,group1,group2){
+					methodUri = methodUri.replace(/:(.+?)([\.\/:])/g,function(match,group1,group2){
 						group1 = '{'+group1.replace(':','')+'}';
 						return group1+group2;
 					});
@@ -293,8 +344,9 @@ function processHtml(html,options,callback){
 					}
 
 				});
+				optimisePaths(s);
 
-			}
+			} // end for in ids
 
 			callback({},collection);
 		},html,options,callback);
@@ -322,13 +374,15 @@ module.exports = {
 				}
 				var output = urlOrFile.replace('http://','').replace('https://','').replace('/','-');
 				if (!output.endsWith('.html')) output += '.html';
-				fs.writeFileSync('./html/'+output,body,'utf8');
-				processHtml(body,options,callback);
+				fs.writeFile('./html/'+output,body,'utf8',function(){
+					processHtml(body,options,callback);
+				});
 			});
 		}
 		else {
-			html = fs.readFileSync(urlOrFile,'utf8');
-			processHtml(html,options,callback);
+			fs.readFile(urlOrFile,'utf8',function(err,html){
+				processHtml(html,options,callback);
+			});
 		}
 	}
 
