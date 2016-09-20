@@ -62,7 +62,7 @@ function optimisePaths(s){
 			components = p.split('/');
 			var path = '';
 			for (var c=0;c<minCommon;c++) {
-				if (components[c]) path += '/' + components[c];
+				if (components[c] && (components[c].indexOf('{')<0)) path += '/' + components[c];
 			}
 			if (!common) {
 				common = path;
@@ -112,7 +112,7 @@ function processHtml(html,options,callback){
 			if (temp) {
 				t.externalDocs.description = temp;
 			}
-			t.externalDocs.url = $('div .introText>p>a').first().attr('href');
+			t.externalDocs.url = $('div .introText a').first().attr('href'); // was div .introText>p>a
 			if ((t.externalDocs.url && (!t.externalDocs.url.startsWith('http')))) {
 				if (options.url) {
 					t.externalDocs.url = options.urlOrFile+t.externalDocs.url;
@@ -120,6 +120,9 @@ function processHtml(html,options,callback){
 				else if (options.srcUrl) {
 					t.externalDocs.url = options.srcUrl+t.externalDocs.url;
 				}
+			}
+			if (!t.externalDocs.url) {
+				t.externalDocs.url = options.url ? options.urlOrFile : options.srcUrl;
 			}
 
 			$('#apiId>option').each(function(){
@@ -173,10 +176,14 @@ function processHtml(html,options,callback){
 					methodUri = methodUri.split('Δ').join(':');
 					methodUri = methodUri.split('Î"').join(':');
 					methodUri = methodUri + '/';
-					methodUri = methodUri.replace(/:(.+?)([\.\/:])/g,function(match,group1,group2){
-						group1 = '{'+group1.replace(':','')+'}';
-						return group1+group2;
-					});
+					//console.log(methodUri);
+					while (methodUri.indexOf(':')>=0) {
+						methodUri = methodUri.replace(/:(.+?)([\.\/:\{])/g,function(match,group1,group2){
+							group1 = '{'+group1.replace(':','')+'}';
+							return group1+group2;
+						});
+					}
+					//console.log(methodUri);
 					methodUri = methodUri.replace('/{apiKey}/','/'); // TODO Press Association
 					methodUri = methodUri.substr(0,methodUri.length-1);
 
@@ -239,6 +246,7 @@ function processHtml(html,options,callback){
 						var name = $(this).find('td.name').first().text().trim();
 						name = name.replace('Δ',':');
 						name = name.replace('Î"',':');
+						name = name.replace('{','').replace('}','');
 						var required = $(this).find('td.parameter > input').attr('placeholder');
 						var type = $(this).find('td.type').first().text().trim();
 						var description = $(this).find('td.description').first().text().trim();
@@ -246,12 +254,36 @@ function processHtml(html,options,callback){
 						var parameter = {};
 						parameter.name = name.replace(':','');
 						parameter.type = type;
+						if (parameter.type == 'text') {
+							parameter.type = 'string';
+						}
+						if (parameter.type == 'text box') {
+							parameter.type = 'string';
+						}
+						if (parameter.type == 'enumerated') {
+							parameter.type = 'string';
+						}
 						if (parameter.type == 'date') {
 							parameter.type = 'string';
 							parameter.format = 'date';
 						}
+						if (parameter.type == 'datetime') {
+							parameter.type = 'string';
+							parameter.format = 'date-time';
+						}
+						if (parameter.type == 'daterange') {
+							parameter.type = 'string';
+							// TODO pattern?
+						}
 						if (parameter.type == 'int') {
 							parameter.type = 'integer';
+						}
+						if (parameter.type == 'num') {
+							parameter.type = 'number';
+						}
+						if (parameter.type == 'floating point') {
+							parameter.type = 'number';
+							parameter.format = 'float';
 						}
 						parameter.description = description; // TODO detect repeatable parameters ('multiple' in description etc)
 
@@ -315,14 +347,18 @@ function processHtml(html,options,callback){
 					});
 
 					var oldPath = methodUri;
+					methodUri = methodUri + '/';
 					for (var p in op.parameters) {
 						var param = op.parameters[p];
 						if (param["in"] == 'path') {
 							if ((methodUri.indexOf(param.name)>=0) && (methodUri.indexOf('{'+param.name+'}')<0)) {
-								methodUri = methodUri.replace(param.name,'{'+param.name+'}');
+								methodUri = methodUri.replace(param.name+'/','{'+param.name+'}/');
+								methodUri = methodUri.replace(param.name+',','{'+param.name+'},');
+								methodUri = methodUri.replace(param.name+'.','{'+param.name+'}.'); // TODO regex?
 							}
 						}
 					}
+					methodUri = methodUri.substr(0,methodUri.length-1);
 
 					op.responses = {};
 					op.responses['200'] = {};
@@ -348,7 +384,10 @@ function processHtml(html,options,callback){
 
 			} // end for in ids
 
-			callback({},collection);
+			var result = {};
+			result.ids = ids;
+			result.collection = collection;
+			callback({},result);
 		},html,options,callback);
 	}
 	else {
