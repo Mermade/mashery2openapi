@@ -11,6 +11,8 @@ var request = require('request');
 var cheerio = require('cheerio');
 var _ = require('lodash');
 
+var recurseotron = require('../openapi_optimise/common.js');
+
 const externalDocsText = 'You can also view our written documentation.';
 const noDescription = 'No description set';
 
@@ -91,15 +93,34 @@ function optimisePaths(s){
 	return s;
 }
 
+function processDefs(defs){
+	recurseotron.recurse(defs,{},function(obj,state){
+		if ((typeof obj == 'object') && (typeof obj.required !== 'undefined')) {
+			if (obj.required) {
+				var grandparent = state.parents[state.parents.length-2];
+				if (!grandparent.required) grandparent.required = [];
+				grandparent.required.push(state.key);
+			}
+			delete obj.required; // TODO move to properties.required array
+		}
+	});
+	return defs;
+}
+
 function processHtml(html,options,callback){
 
 	var collection = [];
 	var ids = [];
 
+	var defs = {};
+
 	if (html) {
 		process.nextTick(function(html,options,callback){
 
 			var $ = cheerio.load(html);
+			$.data = function(a,b,c){
+				defs = c;
+			}
 
 			var t = createSwagger();
 
@@ -147,6 +168,13 @@ function processHtml(html,options,callback){
 
 				var api = $('#api'+id).first();
 
+				defs = {};
+				var script = api.find('script').first();
+				var scriptText = $(script).html();
+				//if (scriptText.startsWith('var apiRootElement =')) {
+				eval(scriptText); // ouch that hurts!
+				//}
+
 				api.find('li > h3 > span').each(function(){ //selector
 					var tag = {};
 					tag.name = $(this).text().trim();
@@ -164,6 +192,7 @@ function processHtml(html,options,callback){
 						s.securityDefinitions[sec].name = 'apikey';
 						s.securityDefinitions[sec]["in"] = 'query';
 					}
+					// TODO oAuth, basic etc
 				}
 
 				api.find('li > ul > li > form').each(function(){ //selectors
@@ -260,7 +289,10 @@ function processHtml(html,options,callback){
 						if (parameter.type == 'text box') {
 							parameter.type = 'string';
 						}
-						if (parameter.type == 'enumerated') {
+						if (parameter.type == 'ref') {
+							parameter.type = 'string';
+						}
+						if ((parameter.type == 'enumerated') || (parameter.type == 'enum')) {
 							parameter.type = 'string';
 						}
 						if (parameter.type == 'date') {
@@ -281,9 +313,16 @@ function processHtml(html,options,callback){
 						if (parameter.type == 'num') {
 							parameter.type = 'number';
 						}
-						if (parameter.type == 'floating point') {
+						if ((parameter.type == 'floating point') || (parameter.type == 'float')) {
 							parameter.type = 'number';
 							parameter.format = 'float';
+						}
+						if (parameter.type == 'decimal') {
+							parameter.type = 'number';
+						}
+						if (parameter.type == 'array') {
+							parameter.items = {};
+							parameter.items.type = 'string';
 						}
 						parameter.description = description; // TODO detect repeatable parameters ('multiple' in description etc)
 
@@ -305,7 +344,9 @@ function processHtml(html,options,callback){
 							var val = $(this).attr('value');
 							if (val) {
 								if (!parameter["enum"]) parameter["enum"] = [];
-								parameter["enum"].push(val);
+								if (parameter["enum"].indexOf(val)<0) {
+									parameter["enum"].push(val);
+								}
 							}
 						});
 						if (parameter["enum"] && (parameter["enum"].length==2) && (parameter["enum"].indexOf('true')>=0) &&
@@ -326,7 +367,7 @@ function processHtml(html,options,callback){
 						var defValue = $(this).find('td.parameter > input').first().attr('value'); // selector
 						if (defValue) parameter["default"] = defValue;
 
-						op.parameters.push(parameter);
+						if (parameter.name != '') op.parameters.push(parameter);
 					});
 
 					methodUri.replace(/(\{.+?\})/g,function(match,group1){
@@ -356,6 +397,9 @@ function processHtml(html,options,callback){
 								methodUri = methodUri.replace(param.name+',','{'+param.name+'},');
 								methodUri = methodUri.replace(param.name+'.','{'+param.name+'}.'); // TODO regex?
 							}
+							if (methodUri.indexOf('{'+param.name+'}')<0) {
+								param["in"] = 'query'; // in case it's an error
+							}
 						}
 					}
 					methodUri = methodUri.substr(0,methodUri.length-1);
@@ -381,6 +425,11 @@ function processHtml(html,options,callback){
 
 				});
 				optimisePaths(s);
+
+				if (defs) {
+					processDefs(defs);
+				}
+				s.definitions = defs;
 
 			} // end for in ids
 

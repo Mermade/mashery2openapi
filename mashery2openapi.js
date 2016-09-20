@@ -71,7 +71,7 @@ process.on('exit',function(code){
 			extension = 'json';
 		}
 		else {
-			console.log('%s %s %s',api.host,api.info.title,api.info.version);
+			//console.log('%s %s %s',api.host,api.info.title,api.info.version);
 			process.exitCode = 1;
 			extension = 'err';
 		}
@@ -84,5 +84,5 @@ process.on('exit',function(code){
 		fs.appendFileSync('./mashery2openapi.log',log,'utf8');
 	}
 
-	console.log('Exiting: %s',process.exitCode);
+	console.log('Exiting: %s',process.exitCode || code);
 });
