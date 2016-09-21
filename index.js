@@ -11,6 +11,7 @@ var request = require('request');
 var cheerio = require('cheerio');
 var _ = require('lodash');
 
+var jptr = require('jgexml/jpath.js');
 var recurseotron = require('../openapi_optimise/common.js');
 
 const externalDocsText = 'You can also view our written documentation.';
@@ -95,16 +96,32 @@ function optimisePaths(s){
 
 function processDefs(defs){
 	recurseotron.recurse(defs,{},function(obj,state){
-		if ((typeof obj == 'object') && (typeof obj.required !== 'undefined')) {
+		var grandparent = state.parents[state.parents.length-2];
+		if ((typeof obj == 'object') && (typeof obj.required == 'boolean')) {
 			if (obj.required) {
-				var grandparent = state.parents[state.parents.length-2];
 				if (!grandparent.required) grandparent.required = [];
 				grandparent.required.push(state.key);
 			}
-			delete obj.required; // TODO move to properties.required array
+			delete obj.required;
+		}
+		if (state.key == "$ref") {
+			var target = jptr.jptr(defs,obj);
+			if (!target) {
+				delete grandparent[state.keys[state.keys.length-2]];
+			}
 		}
 	});
 	return defs;
+}
+
+function addContentType(s,type) {
+	if (s.consumes.indexOf(type)<0) {
+		s.consumes.push(type);
+	}
+	if (s.produces.indexOf(type)<0) {
+		s.produces.push(type);
+	}
+	return s;
 }
 
 function processHtml(html,options,callback){
@@ -119,7 +136,7 @@ function processHtml(html,options,callback){
 
 			var $ = cheerio.load(html);
 			$.data = function(a,b,c){
-				defs = c;
+				defs.definitions = c;
 			}
 
 			var t = createSwagger();
@@ -171,9 +188,9 @@ function processHtml(html,options,callback){
 				defs = {};
 				var script = api.find('script').first();
 				var scriptText = $(script).html();
-				//if (scriptText.startsWith('var apiRootElement =')) {
-				eval(scriptText); // ouch that hurts!
-				//}
+				if (scriptText.indexOf('var apiRootElement =')>=0) {
+					eval(scriptText); // ouch that hurts!
+				}
 
 				api.find('li > h3 > span').each(function(){ //selector
 					var tag = {};
@@ -204,51 +221,39 @@ function processHtml(html,options,callback){
 					if (!methodUri.startsWith('/')) methodUri = '/'+methodUri;
 					methodUri = methodUri.split('Δ').join(':');
 					methodUri = methodUri.split('Î"').join(':');
+					methodUri = methodUri.replace('true/false','true|false');
+					methodUri = methodUri.replace(':/','/');
 					methodUri = methodUri + '/';
-					//console.log(methodUri);
-					while (methodUri.indexOf(':')>=0) {
-						methodUri = methodUri.replace(/:(.+?)([\.\/:\{])/g,function(match,group1,group2){
-							group1 = '{'+group1.replace(':','')+'}';
-							return group1+group2;
-						});
+					if (methodUri.indexOf('{')<0) {
+						while (methodUri.indexOf(':')>=0) {
+							methodUri = methodUri.replace(/:(.+?)([\.\/:\{])/g,function(match,group1,group2){
+								group1 = '{'+group1.replace(':','')+'}';
+								return group1+group2;
+							});
+						}
 					}
-					//console.log(methodUri);
 					methodUri = methodUri.replace('/{apiKey}/','/'); // TODO Press Association
 					methodUri = methodUri.substr(0,methodUri.length-1);
 
 					if (methodUri.indexOf('.json')>=0) {
-						if (s.consumes.indexOf('application/json')<0) {
-							s.consumes.push('application/json');
-						}
-						if (s.produces.indexOf('application/json')<0) {
-							s.produces.push('application/json');
-						}
+						addContentType(s,'application/json');
 					}
 					if (methodUri.indexOf('.xml')>=0) {
-						if (s.consumes.indexOf('application/xml')<0) {
-							s.consumes.push('application/xml');
-						}
-						if (s.produces.indexOf('application/xml')<0) {
-							s.produces.push('application/xml');
-						}
+						addContentType(s,'application/xml');
 					}
 					if (methodUri.indexOf('.rss')>=0) {
-						if (s.consumes.indexOf('application/xml')<0) {
-							s.consumes.push('application/xml');
-						}
-						if (s.produces.indexOf('application/xml+rss')<0) {
-							s.produces.push('application/xml+rss');
-						}
+						addContentType(s,'application/xml+rss');
 					}
 					if (methodUri.indexOf('.atom')>=0) {
-						if (s.consumes.indexOf('application/xml')<0) {
-							s.consumes.push('application/xml');
-						}
-						if (s.produces.indexOf('application/xml+atom')<0) {
-							s.produces.push('application/xml+atom');
-						}
+						addContentType(s,'application/xml+atom');
 					}
-					// TODO yaml / rdf ?
+					if ((methodUri.indexOf('.yaml')>=0) || (methodUri.indexOf('.yml')>=0)) {
+						addContentType(s,'application/x-yaml');
+					}
+					if (methodUri.indexOf('.rdf')>=0) {
+						addContentType(s,'application/xml+rdf');
+					}
+					// TODO turtle?
 
 					var operationId = (methodName+endpointName).split(' ').join('');
 
@@ -286,7 +291,7 @@ function processHtml(html,options,callback){
 						if (parameter.type == 'text') {
 							parameter.type = 'string';
 						}
-						if (parameter.type == 'text box') {
+						if ((parameter.type == 'text box') || (parameter.type == 'textarea')) {
 							parameter.type = 'string';
 						}
 						if (parameter.type == 'ref') {
@@ -307,7 +312,16 @@ function processHtml(html,options,callback){
 							parameter.type = 'string';
 							// TODO pattern?
 						}
+						if (parameter.type == 'list') {
+							parameter.type = 'string'; // TODO validate if possible (Penguin Random House)
+						}
+						if (parameter.type == 'application/xml') {
+							parameter.type = 'string'; // looks like just a bug in British Airways spec
+						}
 						if (parameter.type == 'int') {
+							parameter.type = 'integer';
+						}
+						if (parameter.type == 'long') {
 							parameter.type = 'integer';
 						}
 						if (parameter.type == 'num') {
@@ -319,6 +333,9 @@ function processHtml(html,options,callback){
 						}
 						if (parameter.type == 'decimal') {
 							parameter.type = 'number';
+						}
+						if ((parameter.type == 'bool') || (parameter.type == 'false')) {
+							parameter.type = 'boolean';
 						}
 						if (parameter.type == 'array') {
 							parameter.items = {};
@@ -368,6 +385,10 @@ function processHtml(html,options,callback){
 						if (defValue) parameter["default"] = defValue;
 
 						if (parameter.name != '') op.parameters.push(parameter);
+					}); // end of each parameter
+
+					op.parameters = _.uniqWith(op.parameters,function(a,b){
+						return ((a.name == b.name) && (a["in"] == b["in"]));
 					});
 
 					methodUri.replace(/(\{.+?\})/g,function(match,group1){
@@ -429,7 +450,7 @@ function processHtml(html,options,callback){
 				if (defs) {
 					processDefs(defs);
 				}
-				s.definitions = defs;
+				s.definitions = defs.definitions;
 
 			} // end for in ids
 

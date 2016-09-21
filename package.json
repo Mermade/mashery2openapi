@@ -26,6 +26,8 @@
   "dependencies": {
     "cheerio": "latest",
 	"request": "latest",
-	"swagger-parser": "latest"
+	"swagger-parser": "latest",
+	"jgexml": "latest",
+	"openapi_optimise": "latest"
   }
 }
