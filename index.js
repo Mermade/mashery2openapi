@@ -474,10 +474,15 @@ function processHtml(html,options,callback){
 
 			} // end for in ids
 
+			var result = {};
+			result.ids = ids;
+			result.collection = collection;
+
 			if (collection.length==0) {
 				var v2Name = $('input[name="apiName"]').first().val();
 				if (v2Name) {
 					console.log("Looks like a 'version 2' spec");
+					result.version = 2;
 					if (options.url) {
 						options.apiName = v2Name;
 						v2.convertJSON($,options);
@@ -485,9 +490,6 @@ function processHtml(html,options,callback){
 				}
 			}
 
-			var result = {};
-			result.ids = ids;
-			result.collection = collection;
 			callback({},result);
 		},html,options,callback);
 	}

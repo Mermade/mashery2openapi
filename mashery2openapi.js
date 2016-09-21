@@ -26,7 +26,12 @@ console.log('in:  '+fileOrUrl);
 m2oa.convertHtml(fileOrUrl,options,function(err,result){
 	keep = result;
 	if (result.collection.length<1) {
-		process.exitCode = 2;
+		if (result.version > 1) {
+			process.exitCode = result.version;
+		}
+		else {
+			process.exitCode = 99;
+		}
 	}
 
 	for (var o in result.collection) {
