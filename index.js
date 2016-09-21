@@ -99,12 +99,32 @@ function optimisePaths(s){
 function processDefs(defs){
 	recurseotron.recurse(defs,{},function(obj,state){
 		var grandparent = state.parents[state.parents.length-2];
-		if ((typeof obj == 'object') && (typeof obj.required == 'boolean')) {
+		var ggparent = state.parents[state.parents.length-3];
+		if ((typeof obj == 'object') && ((typeof obj.required == 'boolean') || (typeof obj.required == 'string'))) {
 			if (obj.required) {
-				if (!grandparent.required) grandparent.required = [];
-				grandparent.required.push(state.key);
+				if (state.parent.type == 'array') {
+					if (!ggparent.required) ggparent.required = [];
+					ggparent.required.push(state.key);
+				}
+				else {
+					if (!grandparent.required) grandparent.required = [];
+					grandparent.required.push(state.key);
+				}
 			}
 			delete obj.required;
+		}
+		if ((state.key == 'id') && (typeof obj == 'string')) {
+			delete state.parent.id;
+		}
+		if ((state.key == 'location') && (typeof obj == 'string')) {
+			delete state.parent.location; // body etc
+		}
+		if ((state.key == 'type') && (obj == 'enum')) {
+			state.parent.type = 'string';
+		}
+		if (state.key == 'annotations') {
+			state.parent["x-annotations"] = state.parent.annotations;
+			delete state.parent.annotations;
 		}
 		if (state.key == "$ref") {
 			var target = jptr.jptr(defs,obj);
@@ -211,7 +231,36 @@ function processHtml(html,options,callback){
 						s.securityDefinitions[sec].name = 'apikey';
 						s.securityDefinitions[sec]["in"] = 'query';
 					}
-					// TODO oAuth, basic etc
+					var basic = api.attr('data-basic-auth');
+					if (basic) { // not seen so far in the wild
+						s.securityDefinitions[sec] = {};
+						s.securityDefinitions[sec].type = 'basic';
+					}
+					if (sec == 'oauth2') {
+						s.securityDefinitions[sec] = {};
+						s.securityDefinitions[sec].type = 'oauth2';
+						var flows = api.attr('data-auth-flows');
+						if (flows.indexOf('implicit')>=0) {
+							s.securityDefinitions[sec].flow = 'implicit';
+						}
+						else if (flows.indexOf('password')>=0) {
+							s.securityDefinitions[sec].flow = 'password';
+						}
+						else if (flows.indexOf('auth_code')>=0) {
+							s.securityDefinitions[sec].flow = 'accessCode';
+						}
+						else if (flows.indexOf('client_cred')>=0) {
+							s.securityDefinitions[sec].flow = 'application'; // TODO verify these
+						}
+						if ((s.securityDefinitions[sec].flow == 'implicit') || (s.securityDefinitions[sec].flow == 'accessCode')) {
+							s.securityDefinitions[sec].authorizationUrl = '';
+						}
+						if ((s.securityDefinitions[sec].flow == 'password') || (s.securityDefinitions[sec].flow == 'application') ||
+							(s.securityDefinitions[sec].flow == 'accessCode')) {
+							s.securityDefinitions[sec].tokenUrl = '';
+						}
+						s.securityDefinitions[sec].scopes = {};
+					}
 				}
 
 				api.find('li > ul > li > form').each(function(){ //selectors
@@ -402,6 +451,26 @@ function processHtml(html,options,callback){
 						return ((a.name == b.name) && (a["in"] == b["in"]));
 					});
 
+					var bodyRef = $(this).find('div.requestBodySchemaContainer').first().attr('data-request-body-schema-id');
+					if (bodyRef && httpMethod == 'post') {
+						var found = false;
+						for (var p in op.parameters) {
+							var param = op.parameters[p];;
+							if (param["in"] == 'body') {
+								delete param.schema.type;
+								param.schema["$ref"] = '#/definitions/'+bodyRef;
+								found = true;
+							}
+						}
+						if (!found) {
+							var param = {};
+							param.name = 'body';
+							param["in"] = 'body';
+							param.schema = {};
+							param.schema["$ref"] = '#/definitions/'+bodyRef;
+							op.parameters.push(param);
+						}
+					}
 
 					var oldPath = methodUri;
 					var idCount = 0;

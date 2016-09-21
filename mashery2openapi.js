@@ -1,6 +1,8 @@
 var fs = require('fs');
-var m2oa = require('./index.js');
 var SwaggerParser = require('swagger-parser');
+var _ = require('lodash');
+
+var m2oa = require('./index.js');
 
 var keep = {};
 var valid = [];
@@ -36,8 +38,8 @@ m2oa.convertHtml(fileOrUrl,options,function(err,result){
 
 	for (var o in result.collection) {
 		valid.push(false);
-		var api = result.collection[o];
 
+		var api = _.cloneDeep(result.collection[o]);
 		SwaggerParser.validate(api, function(vErr, api) {
 			if (vErr) {
 				console.error(vErr);
