@@ -219,10 +219,12 @@ function processHtml(html,options,callback){
 					var methodUri = $(this).find('input[name="methodUri"]').first().attr('value');
 
 					if (!methodUri.startsWith('/')) methodUri = '/'+methodUri;
+
 					methodUri = methodUri.split('Δ').join(':');
 					methodUri = methodUri.split('Î"').join(':');
 					methodUri = methodUri.replace('true/false','true|false');
 					methodUri = methodUri.replace(':/','/');
+
 					methodUri = methodUri + '/';
 					if (methodUri.indexOf('{')<0) {
 						while (methodUri.indexOf(':')>=0) {
@@ -288,6 +290,9 @@ function processHtml(html,options,callback){
 						var parameter = {};
 						parameter.name = name.replace(':','');
 						parameter.type = type;
+						if (parameter.type == 'string:') {
+							parameter.type = 'string';
+						}
 						if (parameter.type == 'text') {
 							parameter.type = 'string';
 						}
@@ -366,6 +371,11 @@ function processHtml(html,options,callback){
 								}
 							}
 						});
+
+						//if ((parameter["enum"]) && (parameter.type == 'number')) {
+						//	parameter.type = 'string';
+						//}
+
 						if (parameter["enum"] && (parameter["enum"].length==2) && (parameter["enum"].indexOf('true')>=0) &&
 							(parameter["enum"].indexOf('false')>=0)) {
 							delete parameter["enum"];
@@ -391,8 +401,18 @@ function processHtml(html,options,callback){
 						return ((a.name == b.name) && (a["in"] == b["in"]));
 					});
 
-					methodUri.replace(/(\{.+?\})/g,function(match,group1){
+
+					var oldPath = methodUri;
+					var idCount = 0;
+					methodUri = methodUri.replace(/(\{.+?\})/g,function(match,group1){
 						var param = group1.replace('{','').replace('}','');
+						if (param == 'id') { // gets repeaed multiple times in path for KLM
+							idCount++;
+							if (idCount>1) {
+								param = param+idCount;
+								group1 = '{'+param+'}';
+							}
+						}
 						var found = false;
 						for (var p in op.parameters) {
 							if ((op.parameters[p].name == param) && (op.parameters[p]["in"] == 'path')) found = true;
@@ -408,7 +428,6 @@ function processHtml(html,options,callback){
 						return group1;
 					});
 
-					var oldPath = methodUri;
 					methodUri = methodUri + '/';
 					for (var p in op.parameters) {
 						var param = op.parameters[p];

@@ -1,5 +1,6 @@
 *.txt
 *.log
+*.zip
 run.sh
 node_modules
 apis

@@ -4,6 +4,7 @@ var SwaggerParser = require('swagger-parser');
 
 var keep = {};
 var valid = [];
+var fails = 0;
 
 function safeMkdir(dir){
 	try {
@@ -73,6 +74,7 @@ process.on('exit',function(code){
 		else {
 			//console.log('%s %s %s',api.host,api.info.title,api.info.version);
 			process.exitCode = 1;
+			fails++;
 			extension = 'err';
 		}
 		console.log('out: '+dir+'/swagger.'+extension);
@@ -84,5 +86,5 @@ process.on('exit',function(code){
 		fs.appendFileSync('./mashery2openapi.log',log,'utf8');
 	}
 
-	console.log('Exiting: %s',process.exitCode || code);
+	console.log('Exiting: %s with %s failures',process.exitCode || code,fails);
 });
