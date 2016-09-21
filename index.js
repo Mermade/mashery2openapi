@@ -14,6 +14,8 @@ var _ = require('lodash');
 var jptr = require('jgexml/jpath.js');
 var recurseotron = require('../openapi_optimise/common.js');
 
+var v2 = require('./apiManagement.js');
+
 const externalDocsText = 'You can also view our written documentation.';
 const noDescription = 'No description set';
 
@@ -234,7 +236,7 @@ function processHtml(html,options,callback){
 							});
 						}
 					}
-					methodUri = methodUri.replace('/{apiKey}/','/'); // TODO Press Association
+					methodUri = methodUri.replace('/{apiKey}/','/'); // BUG Press Association
 					methodUri = methodUri.substr(0,methodUri.length-1);
 
 					if (methodUri.indexOf('.json')>=0) {
@@ -255,7 +257,6 @@ function processHtml(html,options,callback){
 					if (methodUri.indexOf('.rdf')>=0) {
 						addContentType(s,'application/xml+rdf');
 					}
-					// TODO turtle?
 
 					var operationId = (methodName+endpointName).split(' ').join('');
 
@@ -321,7 +322,7 @@ function processHtml(html,options,callback){
 							parameter.type = 'string'; // TODO validate if possible (Penguin Random House)
 						}
 						if (parameter.type == 'application/xml') {
-							parameter.type = 'string'; // looks like just a bug in British Airways spec
+							parameter.type = 'string'; // BUG in British Airways spec
 						}
 						if (parameter.type == 'int') {
 							parameter.type = 'integer';
@@ -472,6 +473,17 @@ function processHtml(html,options,callback){
 				s.definitions = defs.definitions;
 
 			} // end for in ids
+
+			if (collection.length==0) {
+				var v2Name = $('input[name="apiName"]').first().val();
+				if (v2Name) {
+					console.log("Looks like a 'version 2' spec");
+					if (options.url) {
+						options.apiName = v2Name;
+						v2.convertJSON($,options);
+					}
+				}
+			}
 
 			var result = {};
 			result.ids = ids;
