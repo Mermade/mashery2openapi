@@ -165,7 +165,10 @@ function processHtml(html,options,callback){
 
 			var hostPath = (options.url ? options.urlOrFile : (options.srcUrl ? options.srcUrl : 'http://example.com'));
 			var u = up.parse(hostPath);
-			t.host = u.host.replace('developer','api'); // TODO is this ok for pre-patching?
+			t.host = u.host.replace('developers','api');
+			t.host = u.host.replace('developer','api'); // TODO is this ok for pre-patching? It seems to be the mashery default setup
+			t.host = u.host.replace('mashery.',''); // for self-hosted specs
+			if (t.host.split('.').length<3) t.host = 'api.'+t.host;
 
 			t.info.description = $('div .introText>p').first().text().replace(externalDocsText,'').trim();
 			var temp = $('div .introText>p').next().text();
@@ -232,7 +235,7 @@ function processHtml(html,options,callback){
 						s.securityDefinitions[sec]["in"] = 'query';
 					}
 					var basic = api.attr('data-basic-auth');
-					if (basic) { // not seen so far in the wild
+					if (basic === 'true') { // not seen so far in the wild
 						s.securityDefinitions[sec] = {};
 						s.securityDefinitions[sec].type = 'basic';
 					}
@@ -385,6 +388,10 @@ function processHtml(html,options,callback){
 						if ((parameter.type == 'floating point') || (parameter.type == 'float')) {
 							parameter.type = 'number';
 							parameter.format = 'float';
+						}
+						if (parameter.type == 'double') {
+							parameter.type = 'number';
+							parameter.format = 'double';
 						}
 						if (parameter.type == 'decimal') {
 							parameter.type = 'number';
