@@ -192,7 +192,7 @@ function processHtml(html,options,callback){
 				var id = $(this).attr('value');
 				if (id) {
 					var s = _.cloneDeep(t);
-					s.info.title = $(this).text();
+					s.info.title = $(this).text().replace('http://',''); // BUG acme
 					collection.push(s);
 					ids.push(id);
 				}
