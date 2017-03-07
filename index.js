@@ -256,11 +256,11 @@ function processHtml(html,options,callback){
 							s.securityDefinitions[sec].flow = 'application'; // TODO verify these
 						}
 						if ((s.securityDefinitions[sec].flow == 'implicit') || (s.securityDefinitions[sec].flow == 'accessCode')) {
-							s.securityDefinitions[sec].authorizationUrl = '';
+							s.securityDefinitions[sec].authorizationUrl = '/';
 						}
 						if ((s.securityDefinitions[sec].flow == 'password') || (s.securityDefinitions[sec].flow == 'application') ||
 							(s.securityDefinitions[sec].flow == 'accessCode')) {
-							s.securityDefinitions[sec].tokenUrl = '';
+							s.securityDefinitions[sec].tokenUrl = '/';
 						}
 						s.securityDefinitions[sec].scopes = {};
 					}
