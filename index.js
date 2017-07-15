@@ -12,7 +12,7 @@ var cheerio = require('cheerio');
 var _ = require('lodash');
 
 var jptr = require('jgexml/jpath.js');
-var recurseotron = require('../openapi_optimise/common.js');
+var recurseotron = require('openapi_optimise/common.js');
 
 var v2 = require('./apiManagement.js');
 
@@ -22,6 +22,13 @@ const noDescription = 'No description set';
 function rename(obj,key,newKey){
 	obj[newKey] = obj[key];
 	delete obj[key];
+}
+
+function uniqueOnly(value, index, self) {
+	return self.findIndex(function(e,i,a){
+		return ((e.name == value.name) && (e.in == value.in));
+	}) === index;
+    //return self.indexOf(value) === index;
 }
 
 function createSwagger(){
@@ -50,7 +57,7 @@ function createSwagger(){
 	s.security = [];
 	s.tags = [];
 	s.paths = {};
-	s.definitions = {};
+	s.definitions = {}; // TODO sanitise definition names containing /
 	return s;
 }
 
@@ -100,7 +107,7 @@ function processDefs(defs){
 	recurseotron.recurse(defs,{},function(obj,state){
 		var grandparent = state.parents[state.parents.length-2];
 		var ggparent = state.parents[state.parents.length-3];
-		if ((typeof obj == 'object') && ((typeof obj.required == 'boolean') || (typeof obj.required == 'string'))) {
+		if ((typeof obj == 'object') && obj && ((typeof obj.required == 'boolean') || (typeof obj.required == 'string'))) {
 			if (obj.required) {
 				if (state.parent.type == 'array') {
 					if (!ggparent.required) ggparent.required = [];
@@ -121,6 +128,18 @@ function processDefs(defs){
 		}
 		if ((state.key == 'type') && (obj == 'enum')) {
 			state.parent.type = 'string';
+		}
+		if ((state.key == 'type') && (obj === 'String')) {
+			state.parent.type = 'string';
+		}
+		if ((state.key == 'type') && (typeof obj == 'object') && (!Array.isArray(obj))) {
+			if (obj[0]) state.parent.type = [obj[0],obj[1]];
+		}
+		if ((state.key == 'enum') && (typeof obj == 'object') && (!Array.isArray(obj))) {
+			state.parent.enum = [];
+			Object.keys(obj).forEach(function(e){
+				state.parent.enum.push(obj[e]);
+			});
 		}
 		if (state.key == 'annotations') {
 			state.parent["x-annotations"] = state.parent.annotations;
@@ -346,10 +365,16 @@ function processHtml(html,options,callback){
 						if (parameter.type == 'string:') {
 							parameter.type = 'string';
 						}
+						if (parameter.type == 'xs:string') {
+							parameter.type = 'string';
+						}
 						if (parameter.type == 'text') {
 							parameter.type = 'string';
 						}
 						if ((parameter.type == 'text box') || (parameter.type == 'textarea')) {
+							parameter.type = 'string';
+						}
+						if (parameter.type == 'fixed') {
 							parameter.type = 'string';
 						}
 						if (parameter.type == 'ref') {
@@ -365,6 +390,13 @@ function processHtml(html,options,callback){
 						if (parameter.type == 'datetime') {
 							parameter.type = 'string';
 							parameter.format = 'date-time';
+						}
+						if (parameter.type == 'date (yyyymmdd)') {
+							parameter.type = 'string';
+							parameter.format = 'date-time';
+						}
+						if (parameter.type == 'date (yyyy)') {
+							parameter.type = 'string';
 						}
 						if (parameter.type == 'daterange') {
 							parameter.type = 'string';
@@ -483,7 +515,7 @@ function processHtml(html,options,callback){
 					var idCount = 0;
 					methodUri = methodUri.replace(/(\{.+?\})/g,function(match,group1){
 						var param = group1.replace('{','').replace('}','');
-						if (param == 'id') { // gets repeaed multiple times in path for KLM
+						if (param == 'id') { // gets repeated multiple times in path for KLM
 							idCount++;
 							if (idCount>1) {
 								param = param+idCount;
@@ -520,6 +552,25 @@ function processHtml(html,options,callback){
 						}
 					}
 					methodUri = methodUri.substr(0,methodUri.length-1);
+
+					op.parameters = op.parameters.filter(uniqueOnly);
+
+					methodUri.replace(/(\{.+?\})/g,function(match,group1){
+						var name = match.replace('{','').replace('}','');
+						var param = op.parameters.find(function(e,i,a){
+							return ((e.name == name) && (e.in == 'path'));
+						});
+						if (!param) {
+							console.log('** '+match);
+							param = {};
+							param.name = name;
+							param.type = 'string';
+							param.in = 'path';
+							param.required = true;
+							op.parameters.push(param); // correct for missing path parameters (2?)
+						}
+						return match;
+					});
 
 					op.responses = {};
 					op.responses['200'] = {};
