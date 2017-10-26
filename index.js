@@ -1,3 +1,4 @@
+'use strict';
 /*
 inurl:io-docs you can also view our written documentation
 
@@ -5,16 +6,18 @@ e.g. http://developer.ted.com/io-docs.html
 
 */
 
-var fs = require('fs');
-var up = require('url');
-var request = require('request');
-var cheerio = require('cheerio');
-var _ = require('lodash');
+let fs = require('fs');
+let up = require('url');
+let util = require('util');
 
-var jptr = require('jgexml/jpath.js');
-var recurseotron = require('openapi_optimise/common.js');
+let request = require('request');
+let cheerio = require('cheerio');
+let _ = require('lodash');
 
-var v2 = require('./apiManagement.js');
+let jptr = require('jgexml/jpath.js');
+let recurseotron = require('openapi_optimise/common.js');
+
+let v2 = require('./apiManagement.js');
 
 const externalDocsText = 'You can also view our written documentation.';
 const noDescription = 'No description set';
@@ -31,8 +34,8 @@ function uniqueOnly(value, index, self) {
     //return self.indexOf(value) === index;
 }
 
-function createSwagger(){
-	var s = {};
+function createSwagger(url){
+	let s = {};
 	s.swagger = '2.0';
 	s.info = {};
 	s.info.title = '';
@@ -44,6 +47,9 @@ function createSwagger(){
 	s.info.license = {};
 	s.info.license.name = 'MIT';
 	s.info.license.url = 'https://opensource.org/licenses/MIT';
+    s.info["x-origin"] = [];
+    let origin = { url: url, format: 'io_docs' };
+    s.info["x-origin"].push(origin);
 	s.schemes = [];
 	s.schemes.push('http');
 	s.host = 'example.com';
@@ -62,18 +68,18 @@ function createSwagger(){
 }
 
 function optimisePaths(s){
-	var minCommon = Number.MAX_VALUE;
-	for (var p in s.paths) {
-		var count = p.split('/').length-1;
+	let minCommon = Number.MAX_VALUE;
+	for (let p in s.paths) {
+		let count = p.split('/').length-1;
 		if (count<minCommon) minCommon = count;
 	}
 	if (minCommon>0) {
-		var common = '';
-		var components = [];
-		for (var p in s.paths) {
+		let common = '';
+		let components = [];
+		for (let p in s.paths) {
 			components = p.split('/');
-			var path = '';
-			for (var c=0;c<minCommon;c++) {
+			let path = '';
+			for (let c=0;c<minCommon;c++) {
 				if (components[c] && (components[c].indexOf('{')<0)) path += '/' + components[c];
 			}
 			if (!common) {
@@ -87,14 +93,14 @@ function optimisePaths(s){
 		}
 		if (common && common != '*') {
 			s.basePath = common;
-			for (var c=0;c<minCommon;c++) {
-				var element = components[c];
+			for (let c=0;c<minCommon;c++) {
+				let element = components[c];
 				if (element.match(/^v[0123456789].*$/)) {
 					s.info.version = element.replace('v','');
 				}
 			}
 
-			for (var p in s.paths) {
+			for (let p in s.paths) {
 				rename(s.paths,p,p.replace(common,''));
 			}
 
@@ -105,8 +111,8 @@ function optimisePaths(s){
 
 function processDefs(defs){
 	recurseotron.recurse(defs,{},function(obj,state){
-		var grandparent = state.parents[state.parents.length-2];
-		var ggparent = state.parents[state.parents.length-3];
+		let grandparent = state.parents[state.parents.length-2];
+		let ggparent = state.parents[state.parents.length-3];
 		if ((typeof obj == 'object') && obj && ((typeof obj.required == 'boolean') || (typeof obj.required == 'string'))) {
 			if (obj.required) {
 				if (state.parent.type == 'array') {
@@ -132,21 +138,35 @@ function processDefs(defs){
 		if ((state.key == 'type') && (obj === 'String')) {
 			state.parent.type = 'string';
 		}
+        if ((state.key == 'type') && (obj === 'array')) {
+            if (!state.parent.items) state.parent.items = {};
+        }
 		if ((state.key == 'type') && (typeof obj == 'object') && (!Array.isArray(obj))) {
 			if (obj[0]) state.parent.type = [obj[0],obj[1]];
 		}
 		if ((state.key == 'enum') && (typeof obj == 'object') && (!Array.isArray(obj))) {
 			state.parent.enum = [];
-			Object.keys(obj).forEach(function(e){
-				state.parent.enum.push(obj[e]);
-			});
+            if (obj) {
+			    Object.keys(obj).forEach(function(e){
+				    state.parent.enum.push(obj[e]);
+			    });
+            }
 		}
+        if ((state.key == 'allowEmptyValue') && (obj !== null)) {
+            state.parent["x-nullable"] = obj;
+            delete state.parent.allowEmptyValue;
+        }
 		if (state.key == 'annotations') {
 			state.parent["x-annotations"] = state.parent.annotations;
 			delete state.parent.annotations;
 		}
+
+        if ((typeof obj === 'object') && (obj === null)) {
+            delete state.parent[state.key];
+        }
+
 		if (state.key == "$ref") {
-			var target = jptr.jptr(defs,obj);
+			let target = jptr.jptr(defs,obj);
 			if (!target) {
 				delete grandparent[state.keys[state.keys.length-2]];
 			}
@@ -165,32 +185,64 @@ function addContentType(s,type) {
 	return s;
 }
 
+function doit(methodUri,op) {
+    methodUri.replace(/(\{.+?\})/g,function(match,group1){
+    	let name = match.replace('{','').replace('}','');
+		let param = op.parameters.find(function(e,i,a){
+		    return ((e.name == name) && (e.in == 'path'));
+	    });
+	    if (!param) {
+    	    console.log('Missing path parameter for other op '+match);
+		    let nparam = {};
+		    nparam.name = name;
+		    nparam.type = 'string';
+		    nparam.in = 'path';
+		    nparam.required = true;
+		    op.parameters.push(nparam); // correct for missing path parameters (2?)
+	    }
+	    return match;
+	});
+}
+
+function fillInMissingPathParameters(swagger) {
+    for (let p in swagger.paths) {
+        let pi = swagger.paths[p];
+        for (let o in pi) {
+            if (['get','post','put','patch','delete','head','options'].indexOf(o)>=0) {
+                let op = pi[o];
+                doit(p,op);
+            }
+        }
+    }
+}
+
 function processHtml(html,options,callback){
 
-	var collection = [];
-	var ids = [];
+	let collection = [];
+	let ids = [];
 
-	var defs = {};
+	let defs = {};
 
 	if (html) {
 		process.nextTick(function(html,options,callback){
 
 			var $ = cheerio.load(html);
 			$.data = function(a,b,c){
+                // called by the eval()
 				defs.definitions = c;
 			}
 
-			var t = createSwagger();
+			let hostPath = (options.url ? options.urlOrFile : (options.srcUrl ? options.srcUrl : 'http://example.com'));
+			let t = createSwagger(hostPath);
 
-			var hostPath = (options.url ? options.urlOrFile : (options.srcUrl ? options.srcUrl : 'http://example.com'));
-			var u = up.parse(hostPath);
+			let u = up.parse(hostPath);
 			t.host = u.host.replace('developers','api');
-			t.host = u.host.replace('developer','api'); // TODO is this ok for pre-patching? It seems to be the mashery default setup
-			t.host = u.host.replace('mashery.',''); // for self-hosted specs
+			t.host = t.host.replace('developer','api'); // TODO is this ok for pre-patching? It seems to be the mashery default setup
+			t.host = t.host.replace('mashery.',''); // for self-hosted specs
 			if (t.host.split('.').length<3) t.host = 'api.'+t.host;
 
 			t.info.description = $('div .introText>p').first().text().replace(externalDocsText,'').trim();
-			var temp = $('div .introText>p').next().text();
+			let temp = $('div .introText>p').next().text();
 			if (temp) {
 				t.externalDocs.description = temp;
 			}
@@ -208,43 +260,43 @@ function processHtml(html,options,callback){
 			}
 
 			$('#apiId>option').each(function(){
-				var id = $(this).attr('value');
+				let id = $(this).attr('value');
 				if (id) {
-					var s = _.cloneDeep(t);
+					let s = _.cloneDeep(t);
 					s.info.title = $(this).text().replace('http://',''); // BUG acme
 					collection.push(s);
 					ids.push(id);
 				}
 			});
 
-			for (var i in ids) {
-				var id = ids[i];
-				var s = collection[i];
+			for (let i in ids) {
+				let id = ids[i];
+				let s = collection[i];
 				s.info["x-mashery-id"] = id;
-				var apiDesc = $('#apiDescription'+id).text().trim();
+				let apiDesc = $('#apiDescription'+id).text().trim();
 				if (apiDesc != noDescription) {
 					s.info.description += ' '+apiDesc;
 				}
 				console.log('%s %s',id,s.info.title);
 
-				var api = $('#api'+id).first();
+				let api = $('#api'+id).first();
 
 				defs = {};
-				var script = api.find('script').first();
-				var scriptText = $(script).html();
+				let script = api.find('script').first();
+				let scriptText = $(script).html();
 				if (scriptText.indexOf('var apiRootElement =')>=0) {
 					eval(scriptText); // ouch that hurts!
 				}
 
 				api.find('li > h3 > span').each(function(){ //selector
-					var tag = {};
+					let tag = {};
 					tag.name = $(this).text().trim();
 					s.tags.push(tag);
 				});
 
-				var sec = api.attr('data-auth-type');
+				let sec = api.attr('data-auth-type');
 				if (sec) {
-					var stype = {};
+					let stype = {};
 					stype[sec] = [];
 					s.security.push(stype);
 					if (sec == 'key') {
@@ -253,7 +305,7 @@ function processHtml(html,options,callback){
 						s.securityDefinitions[sec].name = 'apikey';
 						s.securityDefinitions[sec]["in"] = 'query';
 					}
-					var basic = api.attr('data-basic-auth');
+					let basic = api.attr('data-basic-auth');
 					if (basic === 'true') { // not seen so far in the wild
 						s.securityDefinitions[sec] = {};
 						s.securityDefinitions[sec].type = 'basic';
@@ -261,7 +313,7 @@ function processHtml(html,options,callback){
 					if (sec == 'oauth2') {
 						s.securityDefinitions[sec] = {};
 						s.securityDefinitions[sec].type = 'oauth2';
-						var flows = api.attr('data-auth-flows');
+						let flows = api.attr('data-auth-flows');
 						if (flows.indexOf('implicit')>=0) {
 							s.securityDefinitions[sec].flow = 'implicit';
 						}
@@ -286,10 +338,10 @@ function processHtml(html,options,callback){
 				}
 
 				api.find('li > ul > li > form').each(function(){ //selectors
-					var endpointName = $(this).find('input[name="endpointName"]').first().attr('value');
-					var methodName = $(this).find('input[name="methodName"]').first().attr('value');
-					var httpMethod = $(this).find('input[name="httpMethod"]').first().attr('value').toLowerCase();
-					var methodUri = $(this).find('input[name="methodUri"]').first().attr('value');
+					let endpointName = $(this).find('input[name="endpointName"]').first().attr('value');
+					let methodName = $(this).find('input[name="methodName"]').first().attr('value');
+					let httpMethod = $(this).find('input[name="httpMethod"]').first().attr('value').toLowerCase();
+					let methodUri = $(this).find('input[name="methodUri"]').first().attr('value');
 
 					if (!methodUri.startsWith('/')) methodUri = '/'+methodUri;
 
@@ -329,12 +381,12 @@ function processHtml(html,options,callback){
 						addContentType(s,'application/xml+rdf');
 					}
 
-					var operationId = (methodName+endpointName).split(' ').join('');
+					let operationId = (methodName+endpointName).split(' ').join('');
 
 					if (!s.paths[methodUri]) {
 						s.paths[methodUri] = {};
 					}
-					var op = {};
+					let op = {};
 					op.operationId = operationId;
 					op.summary = $(this).find('span.description > p').first().text().trim(); //selector
 					if (op.summary.length>=50) {
@@ -347,19 +399,19 @@ function processHtml(html,options,callback){
 					op.tags.push(endpointName);
 					op.parameters = [];
 
-					var parameters = $(this).find('table.parameters > tbody').first(); // selectors
+					let parameters = $(this).find('table.parameters > tbody').first(); // selectors
 					parameters.find('tr').each(function(){
-						var classVal = $(this).attr('class').trim();
+						let classVal = $(this).attr('class').trim();
 
-						var name = $(this).find('td.name').first().text().trim();
+						let name = $(this).find('td.name').first().text().trim();
 						name = name.replace('Δ',':');
 						name = name.replace('Î"',':');
 						name = name.replace('{','').replace('}','');
-						var required = $(this).find('td.parameter > input').attr('placeholder');
-						var type = $(this).find('td.type').first().text().trim();
-						var description = $(this).find('td.description').first().text().trim();
+						let required = $(this).find('td.parameter > input').attr('placeholder');
+						let type = $(this).find('td.type').first().text().trim();
+						let description = $(this).find('td.description').first().text().trim();
 
-						var parameter = {};
+						let parameter = {};
 						parameter.name = name.replace(':','');
 						parameter.type = type;
 						if (parameter.type == 'string:') {
@@ -445,14 +497,14 @@ function processHtml(html,options,callback){
 
 						if ((httpMethod == 'post') && (parameter.type == 'object')) {
 							parameter["in"] = 'body';
-							delete parameter.type;
+						    delete parameter.type;
 							parameter.required = true;
 							parameter.schema = {};
 							parameter.schema.type = 'object';
 						}
 
 						$(this).find('td.parameter > select > option').each(function(){ // selector
-							var val = $(this).attr('value');
+							let val = $(this).attr('value');
 							if (val) {
 								if (!parameter["enum"]) parameter["enum"] = [];
 								if (parameter["enum"].indexOf(val)<0) {
@@ -472,16 +524,27 @@ function processHtml(html,options,callback){
 						}
 						if (parameter["enum"] && (parameter["in"] == 'header') && (parameter.name == 'Accept')) {
 							if (!op.produces) op.produces = [];
-							for (var a in parameter["enum"]) {
-								var accept = parameter["enum"][a];
+							for (let a in parameter["enum"]) {
+								let accept = parameter["enum"][a];
 								if (op.produces.indexOf(accept)<0) {
 									op.produces.push(accept);
 								}
 							}
 						}
 
-						var defValue = $(this).find('td.parameter > input').first().attr('value'); // selector
-						if (defValue) parameter["default"] = defValue;
+						let defValue = $(this).find('td.parameter > input').first().attr('value'); // selector
+						if (defValue) {
+                            if (parameter.type === 'number') {
+                                defValue = parseFloat(defValue);
+                            }
+                            if (parameter.type === 'integer') {
+                                defValue = parseInt(defValue,10);
+                            }
+                            if (parameter.type === 'boolean') {
+                                defValue = (defValue === 'true');
+                            }
+                            parameter["default"] = defValue;
+                        }
 
 						if (parameter.name != '') op.parameters.push(parameter);
 					}); // end of each parameter
@@ -490,45 +553,45 @@ function processHtml(html,options,callback){
 						return ((a.name == b.name) && (a["in"] == b["in"]));
 					});
 
-					var bodyRef = $(this).find('div.requestBodySchemaContainer').first().attr('data-request-body-schema-id');
+					let bodyRef = $(this).find('div.requestBodySchemaContainer').first().attr('data-request-body-schema-id');
 					if (bodyRef && httpMethod == 'post') {
-						var found = false;
-						for (var p in op.parameters) {
-							var param = op.parameters[p];;
-							if (param["in"] == 'body') {
+						let found = false;
+						for (let p in op.parameters) {
+							let param = op.parameters[p];
+							if (param["in"] === 'body') {
 								delete param.schema.type;
 								param.schema["$ref"] = '#/definitions/'+bodyRef;
 								found = true;
 							}
 						}
 						if (!found) {
-							var param = {};
-							param.name = 'body';
-							param["in"] = 'body';
-							param.schema = {};
-							param.schema["$ref"] = '#/definitions/'+bodyRef;
-							op.parameters.push(param);
+							let newP = {};
+							newP.name = 'body';
+							newP["in"] = 'body';
+							newP.schema = {};
+							newP.schema["$ref"] = '#/definitions/'+bodyRef;
+							op.parameters.push(newP);
 						}
 					}
 
-					var oldPath = methodUri;
-					var idCount = 0;
+					let oldPath = methodUri;
+					let idCount = 0;
 					methodUri = methodUri.replace(/(\{.+?\})/g,function(match,group1){
-						var param = group1.replace('{','').replace('}','');
-						if (param == 'id') { // gets repeated multiple times in path for KLM
+						let paramName = group1.replace('{','').replace('}','');
+						if (paramName == 'id') { // gets repeated multiple times in path for KLM
 							idCount++;
 							if (idCount>1) {
-								param = param+idCount;
-								group1 = '{'+param+'}';
+								paramName = paramName+idCount;
+								group1 = '{'+paramName+'}';
 							}
 						}
-						var found = false;
-						for (var p in op.parameters) {
-							if ((op.parameters[p].name == param) && (op.parameters[p]["in"] == 'path')) found = true;
+						let found = false;
+						for (let p in op.parameters) {
+							if ((op.parameters[p].name == paramName) && (op.parameters[p]["in"] == 'path')) found = true;
 						}
 						if (!found) {
-							var newP = {};
-							newP.name = param;
+							let newP = {};
+							newP.name = paramName;
 							newP.type = 'string';
 							newP["in"] = 'path';
 							newP.required = true;
@@ -538,8 +601,8 @@ function processHtml(html,options,callback){
 					});
 
 					methodUri = methodUri + '/';
-					for (var p in op.parameters) {
-						var param = op.parameters[p];
+					for (let p in op.parameters) {
+						let param = op.parameters[p];
 						if (param["in"] == 'path') {
 							if ((methodUri.indexOf(param.name)>=0) && (methodUri.indexOf('{'+param.name+'}')<0)) {
 								methodUri = methodUri.replace(param.name+'/','{'+param.name+'}/');
@@ -555,23 +618,6 @@ function processHtml(html,options,callback){
 
 					op.parameters = op.parameters.filter(uniqueOnly);
 
-					methodUri.replace(/(\{.+?\})/g,function(match,group1){
-						var name = match.replace('{','').replace('}','');
-						var param = op.parameters.find(function(e,i,a){
-							return ((e.name == name) && (e.in == 'path'));
-						});
-						if (!param) {
-							console.log('** '+match);
-							param = {};
-							param.name = name;
-							param.type = 'string';
-							param.in = 'path';
-							param.required = true;
-							op.parameters.push(param); // correct for missing path parameters (2?)
-						}
-						return match;
-					});
-
 					op.responses = {};
 					op.responses['200'] = {};
 					op.responses['200'].description = 'Success';
@@ -582,6 +628,9 @@ function processHtml(html,options,callback){
 
 					if (methodUri != oldPath) {
 						if (s.paths[methodUri]) {
+                            if (s.paths[methodUri][httpMethod]) {
+                                console.warn('clash!');
+                            }
 							s.paths[methodUri][httpMethod] = op;
 							delete s.paths[oldPath][httpMethod];
 						}
@@ -591,22 +640,23 @@ function processHtml(html,options,callback){
 						}
 					}
 
-				});
+				}); // end of each endpoint
 				optimisePaths(s);
+                fillInMissingPathParameters(s);
 
 				if (defs) {
-					processDefs(defs);
+                    processDefs(defs);
 				}
 				s.definitions = defs.definitions;
 
 			} // end for in ids
 
-			var result = {};
+			let result = {};
 			result.ids = ids;
 			result.collection = collection;
 
 			if (collection.length==0) {
-				var v2Name = $('input[name="apiName"]').first().val();
+				let v2Name = $('input[name="apiName"]').first().val();
 				if (v2Name) {
 					console.log("Looks like a 'version 2' spec");
 					result.version = 2;
@@ -634,14 +684,14 @@ module.exports = {
 	convertHtml : function(urlOrFile,options,callback){
 		options.urlOrFile = urlOrFile;
 		options.url = urlOrFile.indexOf('://')>=3;
-		var html = '';
+		let html = '';
 		if (options.url) {
 			request(urlOrFile, function (error, response, body) {
 				if (error) {
 					console.log("Error requesting page: " + error);
 					return false;
 				}
-				var output = urlOrFile.replace('http://','').replace('https://','').replace('/','-');
+				let output = urlOrFile.replace('http://','').replace('https://','').replace('/','-');
 				if (!output.endsWith('.html')) output += '.html';
 				fs.writeFile('./html/'+output,body,'utf8',function(){
 					processHtml(body,options,callback);
