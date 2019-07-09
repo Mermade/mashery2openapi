@@ -4,7 +4,9 @@
   "description": "Mashery IO Docs to OpenAPI (Swagger) 2.0 Specification",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "snyk-protect": "snyk protect",
+    "prepublish": "npm run snyk-protect"
   },
   "repository": {
     "type": "git",
@@ -25,9 +27,11 @@
   "homepage": "https://github.com/MikeRalphson/mashery2openapi#readme",
   "dependencies": {
     "cheerio": "latest",
-	"request": "latest",
-	"swagger-parser": "latest",
-	"jgexml": "latest",
-	"openapi_optimise": "latest"
-  }
+    "request": "latest",
+    "swagger-parser": "latest",
+    "jgexml": "latest",
+    "openapi_optimise": "latest",
+    "snyk": "^1.192.4"
+  },
+  "snyk": true
 }
